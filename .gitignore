@@ -9,3 +9,4 @@ model.skops
 *_files
 _sites/
 **/*.quarto_ipynb
+mlruns/*

@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import argparse
 from loguru import logger
 from joblib import dump
+import mlflow
 
 import pathlib
 import pandas as pd
@@ -24,6 +25,9 @@ load_dotenv()
 parser = argparse.ArgumentParser(description="Paramètres du random forest")
 parser.add_argument(
     "--n_trees", type=int, default=20, help="Nombre d'arbres"
+)
+parser.add_argument(
+    "--experiment_name", type=str, default="titanicml", help="MLFlow experiment name"
 )
 args = parser.parse_args()
 
@@ -43,62 +47,79 @@ else:
     logger.warning("API token has not been configured")
 
 
+# LOGGING IN MLFLOW -----------------
+
+mlflow_server = os.getenv("MLFLOW_TRACKING_URI")
+
+logger.info(f"Saving experiment in {mlflow_server}")
+
+mlflow.set_tracking_uri(mlflow_server)
+mlflow.set_experiment(args.experiment_name)
+
+
 # IMPORT ET STRUCTURATION DONNEES --------------------------------
+with mlflow.start_run():
 
-p = pathlib.Path("data/derived/")
-p.mkdir(parents=True, exist_ok=True)
+    p = pathlib.Path("data/derived/")
+    p.mkdir(parents=True, exist_ok=True)
 
-TrainingData = pd.read_csv(data_path)
+    TrainingData = pd.read_csv(data_path)
 
-y = TrainingData["Survived"]
-X = TrainingData.drop("Survived", axis="columns")
+    y = TrainingData["Survived"]
+    X = TrainingData.drop("Survived", axis="columns")
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.1
-)
-pd.concat([X_train, y_train], axis = 1).to_parquet(data_train_path)
-pd.concat([X_test, y_test], axis = 1).to_parquet(data_test_path)
-
-
-# PIPELINE ----------------------------
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.1
+    )
+    pd.concat([X_train, y_train], axis = 1).to_parquet(data_train_path)
+    pd.concat([X_test, y_test], axis = 1).to_parquet(data_test_path)
 
 
-# Create the pipeline
-pipe = create_pipeline(
-    n_trees, max_depth=MAX_DEPTH, max_features=MAX_FEATURES
-)
-
-param_grid = {
-    "classifier__n_estimators": [10, 20, 50],
-    "classifier__max_leaf_nodes": [5, 10, 50],
-}
-
-pipe_cross_validation = GridSearchCV(
-    pipe,
-    param_grid=param_grid,
-    scoring=["accuracy", "precision", "recall", "f1"],
-    refit="f1",
-    cv=5,
-    n_jobs=5,
-    verbose=1,
-)
-
-pipe_cross_validation.fit(X_train, y_train)
-
-pipe = pipe_cross_validation.best_estimator_
+    # PIPELINE ----------------------------
 
 
-# ESTIMATION ET EVALUATION ----------------------
+    # Create the pipeline
+    pipe = create_pipeline(
+        n_trees, max_depth=MAX_DEPTH, max_features=MAX_FEATURES
+    )
 
-pipe.fit(X_train, y_train)
+    param_grid = {
+        "classifier__n_estimators": [10, 20, 50],
+        "classifier__max_leaf_nodes": [5, 10, 50],
+    }
 
-with open("model.joblib", "wb") as f:
-    dump(pipe, f)
+    pipe_cross_validation = GridSearchCV(
+        pipe,
+        param_grid=param_grid,
+        scoring=["accuracy", "precision", "recall", "f1"],
+        refit="f1",
+        cv=5,
+        n_jobs=5,
+        verbose=1,
+    )
 
-# Evaluate the model
-score, matrix = evaluate_model(pipe, X_test, y_test)
+    pipe_cross_validation.fit(X_train, y_train)
 
-logger.success(f"{score:.1%} de bonnes réponses sur les données de test pour validation")
-logger.debug(20 * "-")
-logger.info("Matrice de confusion")
-logger.debug(matrix)
+    pipe = pipe_cross_validation.best_estimator_
+
+
+    # ESTIMATION ET EVALUATION ----------------------
+
+    pipe.fit(X_train, y_train)
+
+    with open("model.joblib", "wb") as f:
+        dump(pipe, f)
+
+    # Log the model
+    model_info = mlflow.sklearn.log_model(sk_model=pipe, name="entrainement_prod")
+
+    # Evaluate the model
+    score, matrix = evaluate_model(pipe, X_test, y_test)
+
+    mlflow.log_metric("score", score)
+    mlflow.log_metric("matrix", matrix)
+
+    logger.success(f"{score:.1%} de bonnes réponses sur les données de test pour validation")
+    logger.debug(20 * "-")
+    logger.info("Matrice de confusion")
+    logger.debug(matrix)
