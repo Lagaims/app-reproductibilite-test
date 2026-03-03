@@ -245,8 +245,4 @@ with mlflow.start_run():
     mlflow.log_artifact(matrix_path)
 
     # Log model
-<<<<<<< HEAD
     mlflow.sklearn.log_model(best_model, "model")
-=======
-    mlflow.sklearn.log_model(search, "model")
->>>>>>> 47560db9a3dedbabae8f55472bf76ce85612c642
