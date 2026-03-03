@@ -227,7 +227,7 @@ with mlflow.start_run():
     mlflow.log_metric("accuracy", test_score)
 
     matrix = confusion_matrix(y_test, best_model.predict(X_test))
-    
+
     logging.info("Matrice de confusion (test):")
     logging.info(matrix)
 
@@ -240,4 +240,4 @@ with mlflow.start_run():
     mlflow.log_artifact(matrix_path)
 
     # Log model
-    mlflow.sklearn.log_model(pipe, "model")
+    mlflow.sklearn.log_model(search, "model")
